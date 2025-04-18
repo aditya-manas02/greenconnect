@@ -2,15 +2,79 @@
 session_start();
 require_once 'config/database.php';
 
-// Fetch all events with organizer information
-$stmt = $pdo->prepare("
+// Fetch unique values for filters
+$filterStmt = $pdo->query("
+    SELECT DISTINCT 
+        event_type,
+        state,
+        district,
+        funding_source,
+        recurrence_type,
+        status
+    FROM events
+    ORDER BY state, district, event_type
+");
+$filters = $filterStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Process filters
+$where_conditions = [];
+$params = [];
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    if (!empty($_GET['event_type'])) {
+        $where_conditions[] = "e.event_type = ?";
+        $params[] = $_GET['event_type'];
+    }
+    if (!empty($_GET['state'])) {
+        $where_conditions[] = "e.state = ?";
+        $params[] = $_GET['state'];
+    }
+    if (!empty($_GET['district'])) {
+        $where_conditions[] = "e.district = ?";
+        $params[] = $_GET['district'];
+    }
+    if (!empty($_GET['funding_source'])) {
+        $where_conditions[] = "e.funding_source = ?";
+        $params[] = $_GET['funding_source'];
+    }
+    if (!empty($_GET['recurrence_type'])) {
+        $where_conditions[] = "e.recurrence_type = ?";
+        $params[] = $_GET['recurrence_type'];
+    }
+    if (!empty($_GET['status'])) {
+        $where_conditions[] = "e.status = ?";
+        $params[] = $_GET['status'];
+    }
+    if (!empty($_GET['tree_types'])) {
+        $where_conditions[] = "e.tree_types LIKE ?";
+        $params[] = "%" . $_GET['tree_types'] . "%";
+    }
+}
+
+// Build the query with filters
+$query = "
     SELECT e.*, u.username, u.user_type, u.org_name, u.community_name 
     FROM events e 
     JOIN users u ON e.organizer_id = u.id 
-    ORDER BY e.start_datetime ASC
-");
-$stmt->execute();
+";
+
+if (!empty($where_conditions)) {
+    $query .= " WHERE " . implode(" AND ", $where_conditions);
+}
+
+$query .= " ORDER BY e.start_datetime ASC";
+
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
 $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Get unique values for each filter
+$states = array_unique(array_column($filters, 'state'));
+$districts = array_unique(array_column($filters, 'district'));
+$event_types = array_unique(array_column($filters, 'event_type'));
+$funding_sources = array_unique(array_column($filters, 'funding_source'));
+$recurrence_types = array_unique(array_column($filters, 'recurrence_type'));
+$statuses = array_unique(array_column($filters, 'status'));
 ?>
 
 <!DOCTYPE html>
@@ -83,6 +147,89 @@ $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
   </header>
 
     <main class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+        <!-- Filter Section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4">Filter Events</h2>
+            <form method="GET" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Event Type</label>
+                    <select name="event_type" class="w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500">
+                        <option value="">All Types</option>
+                        <?php foreach ($event_types as $type): ?>
+                            <option value="<?php echo htmlspecialchars($type); ?>" <?php echo isset($_GET['event_type']) && $_GET['event_type'] === $type ? 'selected' : ''; ?>>
+                                <?php echo ucwords(str_replace('-', ' ', $type)); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">State</label>
+                    <select name="state" class="w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500">
+                        <option value="">All States</option>
+                        <?php foreach ($states as $state): ?>
+                            <option value="<?php echo htmlspecialchars($state); ?>" <?php echo isset($_GET['state']) && $_GET['state'] === $state ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($state); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">District</label>
+                    <select name="district" class="w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500">
+                        <option value="">All Districts</option>
+                        <?php foreach ($districts as $district): ?>
+                            <option value="<?php echo htmlspecialchars($district); ?>" <?php echo isset($_GET['district']) && $_GET['district'] === $district ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($district); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Funding Source</label>
+                    <select name="funding_source" class="w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500">
+                        <option value="">All Sources</option>
+                        <?php foreach ($funding_sources as $source): ?>
+                            <option value="<?php echo htmlspecialchars($source); ?>" <?php echo isset($_GET['funding_source']) && $_GET['funding_source'] === $source ? 'selected' : ''; ?>>
+                                <?php echo ucwords(str_replace('-', ' ', $source)); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Recurrence</label>
+                    <select name="recurrence_type" class="w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500">
+                        <option value="">All Recurrence Types</option>
+                        <?php foreach ($recurrence_types as $type): ?>
+                            <option value="<?php echo htmlspecialchars($type); ?>" <?php echo isset($_GET['recurrence_type']) && $_GET['recurrence_type'] === $type ? 'selected' : ''; ?>>
+                                <?php echo ucwords(str_replace('-', ' ', $type)); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <select name="status" class="w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500">
+                        <option value="">All Statuses</option>
+                        <?php foreach ($statuses as $status): ?>
+                            <option value="<?php echo htmlspecialchars($status); ?>" <?php echo isset($_GET['status']) && $_GET['status'] === $status ? 'selected' : ''; ?>>
+                                <?php echo ucwords($status); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="lg:col-span-3 flex justify-end space-x-4">
+                    <a href="events.php" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md text-sm font-medium transition-all shadow-md">Clear Filters</a>
+                    <button type="submit" class="bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded-md text-sm font-medium transition-all shadow-md">Apply Filters</button>
+                </div>
+            </form>
+        </div>
+
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             <?php foreach ($events as $event): ?>
                 <div class="bg-white rounded-lg shadow-lg overflow-hidden card-hover">
